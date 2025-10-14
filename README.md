@@ -5,11 +5,13 @@ An MCP (Model Context Protocol) server that provides access to Monarch Money fin
 ## Features
 
 - **Account Management**: List and retrieve account information
-- **Transaction Operations**: Get transactions with filtering by date range, accounts, and categories
+- **Transaction Operations**: Get, search, create, and update transactions with filtering by date range, accounts, and categories
+- **Transaction Rules**: Create and manage rules for automatic transaction categorization and updates
 - **Budget Analysis**: Access budget data and spending insights
 - **Category Management**: List and manage transaction categories
 - **Goal Tracking**: Access financial goals and progress
 - **Net Worth Tracking**: Retrieve net worth snapshots over time
+- **Intelligent Batch Operations**: Combined API calls for comprehensive financial overviews and spending analysis
 
 ## Installation
 
@@ -95,6 +97,63 @@ Get investment account details and performance.
 ### `get_net_worth`
 Get net worth snapshots over time.
 
+### Transaction Management
+
+#### `search_transactions`
+Search transactions with natural language queries:
+- Searches across merchant names, descriptions, and notes
+- Supports all date and account filtering options from `get_transactions`
+- Returns compact or verbose format based on `verbose` parameter
+
+#### `create_transaction`
+Create a new manual transaction with category, merchant, and notes.
+
+#### `update_transaction`
+Update an existing transaction's amount, category, merchant, notes, or account.
+
+### Transaction Rules
+
+#### `get_transaction_rules`
+List all configured transaction rules for automatic categorization.
+
+#### `create_transaction_rule`
+Create a rule to automatically categorize or modify transactions:
+- **Merchant criteria**: `"contains:Amazon"`, `"equals:Starbucks"`
+- **Amount filters**: `"gt:100"`, `"lt:50"`, `"eq:25.00"`
+- **Actions**: Set category, add tags, rename merchant
+- **Apply to existing**: Optionally apply rule to past transactions
+
+#### `update_transaction_rule`
+Update an existing transaction rule's criteria or actions.
+
+#### `delete_transaction_rule`
+Remove a transaction rule by ID.
+
+#### `preview_transaction_rule`
+Preview which transactions would match a rule before applying it.
+
+### Batch Operations & Analysis
+
+#### `get_complete_financial_overview`
+Get a comprehensive financial snapshot in a single call:
+- Combines accounts, budgets, cashflow, transactions, and categories
+- Parallel API execution for fast response
+- Includes transaction summary statistics
+- Supports natural language period filters: `"this month"`, `"last quarter"`
+
+#### `analyze_spending_patterns`
+Deep analysis of spending trends and forecasting:
+- Multi-month trend analysis by category and account
+- Predictive forecasting based on historical patterns
+- Confidence indicators and variance analysis
+- Configurable lookback period (1-12 months)
+
+#### `get_usage_analytics`
+View MCP tool usage patterns and optimization suggestions:
+- Tool call frequency and performance metrics
+- Common usage sequences for batch operation suggestions
+- Performance bottleneck identification
+
 ## Usage Examples
 
 ### Basic Account Information
@@ -132,6 +191,21 @@ Get detailed transaction data with verbose=True to see all metadata, nested obje
 Show me my current budget status using the get_budgets tool.
 ```
 
+### Transaction Search
+```
+Search for all transactions from Amazon in the last 3 months.
+```
+
+### Transaction Rules
+```
+Create a rule to automatically categorize all Amazon purchases over $100 as "Shopping" and tag them with "online".
+```
+
+### Complete Financial Overview
+```
+Give me a complete financial overview for this month including accounts, budgets, cashflow, and transaction summaries.
+```
+
 ## Session Management
 
 The server automatically manages authentication sessions:
@@ -164,8 +238,9 @@ This implementation has evolved significantly from the original forked repositor
 
 ### Advanced Architecture
 - **FastMCP Framework**: Complete migration from basic MCP to modern FastMCP with `@mcp.tool()` decorators for cleaner, more maintainable code
-- **Comprehensive Testing**: 42 passing tests across 6 test files with 100% coverage including analytics, validation, and error handling
-- **Type Safety**: Strict typing throughout with Pydantic models and minimal MyPy warnings (8 remaining, down from 111+)
+- **Enhanced Library**: Uses `monarchmoney-enhanced` fork with transaction rule support and additional GraphQL operations
+- **Comprehensive Testing**: 61 passing tests across 6 test files with 100% coverage including analytics, validation, and error handling
+- **Type Safety**: Strict typing throughout with Pydantic models and minimal MyPy warnings
 - **Structured Logging**: Professional logging with `structlog` for debugging and analytics tracking
 
 ### Enhanced Financial Intelligence
@@ -182,8 +257,10 @@ This implementation has evolved significantly from the original forked repositor
 - **Development Workflow**: Extensive documentation in `CLAUDE.md` with git commit standards and quality gates
 
 ### Tool Expansion
-- **20+ Tools**: Complete Monarch Money API coverage vs basic implementation
+- **26 Tools**: Complete Monarch Money API coverage including transaction rules vs basic implementation
+- **Transaction Rules**: Full rule management system for automatic categorization and updates
 - **Intelligent Filtering**: Advanced transaction filtering with category, account, and date combinations
+- **Search Capabilities**: Natural language transaction search with flexible criteria
 - **Optimization Tracking**: Built-in analytics that suggest batch operations based on usage patterns
 
 This implementation represents a complete rewrite focused on production readiness, developer experience, and advanced financial analysis capabilities.
@@ -195,12 +272,13 @@ This implementation represents a complete rewrite focused on production readines
 - **Description**: MCP (Model Context Protocol) server wrapper for Monarch Money
 
 ### MonarchMoney Python Library
-- **Author**: hammem ([@hammem](https://github.com/hammem))
-- **Repository**: [https://github.com/hammem/monarchmoney](https://github.com/hammem/monarchmoney)
+- **Original Author**: hammem ([@hammem](https://github.com/hammem))
+- **Original Repository**: [https://github.com/hammem/monarchmoney](https://github.com/hammem/monarchmoney)
+- **Enhanced Fork**: keithah/monarchmoney-enhanced with transaction rule support
 - **License**: MIT License
 - **Description**: The underlying Python library that provides API access to Monarch Money
 
-This MCP server wraps the monarchmoney Python library to provide seamless integration with AI assistants through the Model Context Protocol.
+This MCP server wraps the monarchmoney-enhanced Python library to provide seamless integration with AI assistants through the Model Context Protocol, including advanced features like transaction rule management.
 
 ## Security Notes
 

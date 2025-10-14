@@ -197,7 +197,7 @@ class TestNewMonarchTools:
 
 class TestToolCounts:
     """Test that we have the expected number of tools."""
-    
+
     def test_all_tools_available(self) -> None:
         """Test that all expected tools are available."""
         expected_tools = [
@@ -205,11 +205,14 @@ class TestToolCounts:
             "get_transaction_categories", "create_transaction", "update_transaction",
             "refresh_accounts", "get_account_holdings", "get_account_history",
             "get_institutions", "get_recurring_transactions", "set_budget_amount",
-            "create_manual_account"
+            "create_manual_account",
+            # Transaction rule management tools (5 new)
+            "get_transaction_rules", "create_transaction_rule", "update_transaction_rule",
+            "delete_transaction_rule", "preview_transaction_rule"
         ]
-        
+
         for tool_name in expected_tools:
             assert hasattr(server, tool_name), f"Tool {tool_name} not found"
-            
-        # Should have 14 tools total now
-        assert len(expected_tools) == 14
+
+        # Should have 19 tools total now (14 original + 5 rule tools)
+        assert len(expected_tools) == 19
