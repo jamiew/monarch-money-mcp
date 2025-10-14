@@ -233,12 +233,18 @@ class TestLoggingConfiguration:
 
 class TestToolCounts:
     """Test that new tools are properly registered."""
-    
+
     def test_new_batch_tools_available(self) -> None:
         """Test that new batch analysis tools are available."""
         new_tools = [
             "get_complete_financial_overview",
-            "analyze_spending_patterns"
+            "analyze_spending_patterns",
+            # Transaction rule tools
+            "get_transaction_rules",
+            "create_transaction_rule",
+            "update_transaction_rule",
+            "delete_transaction_rule",
+            "preview_transaction_rule"
         ]
 
         for tool_name in new_tools:

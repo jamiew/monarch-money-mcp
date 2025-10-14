@@ -1472,6 +1472,330 @@ async def analyze_spending_patterns(
         raise
 
 
+# Transaction Rule Management Tools
+
+@mcp.tool()
+@track_usage
+async def get_transaction_rules() -> str:
+    """Get all configured transaction rules.
+
+    Returns all transaction rules in their priority order with full details including:
+    - Rule ID and order/priority
+    - Merchant criteria (matching patterns)
+    - Amount criteria (e.g., greater than $50)
+    - Category and account filters
+    - Actions (set category, add tags, rename merchant, etc.)
+
+    Returns:
+        JSON string containing list of all transaction rules
+    """
+    if not mm_client:
+        raise ValueError("MonarchMoney client not initialized")
+
+    try:
+        rules = await api_call_with_retry(mm_client.get_transaction_rules)
+        rules = convert_dates_to_strings(rules)
+        return json.dumps(rules, indent=2)
+    except Exception as e:
+        logger.error(f"Failed to get transaction rules: {e}")
+        raise
+
+
+@mcp.tool()
+@track_usage
+async def create_transaction_rule(
+    merchant_criteria: Optional[str] = None,
+    amount_filter: Optional[str] = None,
+    category_id: Optional[str] = None,
+    account_id: Optional[str] = None,
+    set_category_id: Optional[str] = None,
+    add_tags: Optional[str] = None,
+    set_merchant_name: Optional[str] = None,
+    apply_to_existing: bool = False
+) -> str:
+    """Create a new transaction rule to automatically categorize or modify transactions.
+
+    Rules allow you to automatically process transactions based on criteria you define.
+    Common use cases:
+    - Auto-categorize all Amazon purchases as "Shopping"
+    - Tag all transactions over $100 as "needs-review"
+    - Rename messy merchant names to clean ones
+
+    Args:
+        merchant_criteria: Match transactions by merchant name. Format: "contains:Amazon" or "equals:Starbucks"
+        amount_filter: Match by amount. Format: "gt:100" (greater than), "lt:50" (less than), "eq:25.00" (equals)
+        category_id: Only match transactions in this category (optional filter)
+        account_id: Only match transactions from this account (optional filter)
+        set_category_id: ACTION: Set category to this ID for matched transactions
+        add_tags: ACTION: Add comma-separated tags (e.g., "online,shopping")
+        set_merchant_name: ACTION: Rename merchant to this clean name
+        apply_to_existing: If True, apply rule to existing transactions (retroactive)
+
+    Examples:
+        # Auto-categorize Amazon as Shopping
+        merchant_criteria="contains:Amazon", set_category_id="shopping_cat_id"
+
+        # Tag large expenses for review
+        amount_filter="gt:500", add_tags="large-expense,needs-review"
+
+        # Clean up merchant name
+        merchant_criteria="contains:SQ *COFFEE", set_merchant_name="Local Coffee Shop"
+
+    Returns:
+        JSON string with created rule details including rule ID
+    """
+    if not mm_client:
+        raise ValueError("MonarchMoney client not initialized")
+
+    try:
+        # Parse merchant criteria
+        merchant_criteria_list = None
+        if merchant_criteria:
+            if ":" in merchant_criteria:
+                operator, value = merchant_criteria.split(":", 1)
+                merchant_criteria_list = [{"operator": operator, "value": value}]
+            else:
+                # Default to contains
+                merchant_criteria_list = [{"operator": "contains", "value": merchant_criteria}]
+
+        # Parse amount filter
+        amount_criteria_dict = None
+        if amount_filter:
+            if ":" in amount_filter:
+                operator, value = amount_filter.split(":", 1)
+                amount_criteria_dict = {
+                    "operator": operator,
+                    "value": float(value),
+                    "isExpense": True  # Default to expense filtering
+                }
+
+        # Parse tags
+        tags_list = None
+        if add_tags:
+            tags_list = [tag.strip() for tag in add_tags.split(",")]
+
+        # Build account/category filters as lists (API expects lists)
+        category_ids = [category_id] if category_id else None
+        account_ids = [account_id] if account_id else None
+
+        # Create the rule
+        result = await asyncio.wait_for(
+            api_call_with_retry(
+                mm_client.create_transaction_rule,
+                merchant_criteria=merchant_criteria_list,
+                amount_criteria=amount_criteria_dict,
+                category_ids=category_ids,
+                account_ids=account_ids,
+                set_category_action=set_category_id,
+                add_tags_action=tags_list,
+                set_merchant_action=set_merchant_name,
+                apply_to_existing_transactions=apply_to_existing
+            ),
+            timeout=30.0
+        )
+        result = convert_dates_to_strings(result)
+        return json.dumps(result, indent=2)
+
+    except asyncio.TimeoutError:
+        logger.error("Timeout creating transaction rule after 30 seconds")
+        raise ValueError("Rule creation timed out after 30 seconds. Please try again.")
+    except Exception as e:
+        logger.error(f"Failed to create transaction rule: {e}")
+        raise
+
+
+@mcp.tool()
+@track_usage
+async def update_transaction_rule(
+    rule_id: str,
+    merchant_criteria: Optional[str] = None,
+    amount_filter: Optional[str] = None,
+    category_id: Optional[str] = None,
+    account_id: Optional[str] = None,
+    set_category_id: Optional[str] = None,
+    add_tags: Optional[str] = None,
+    set_merchant_name: Optional[str] = None,
+    apply_to_existing: Optional[bool] = None
+) -> str:
+    """Update an existing transaction rule.
+
+    Modify the criteria or actions of an existing rule. Any parameters you don't
+    specify will remain unchanged.
+
+    Args:
+        rule_id: ID of the rule to update (get from get_transaction_rules)
+        merchant_criteria: New merchant matching pattern (format: "contains:text" or "equals:text")
+        amount_filter: New amount filter (format: "gt:100", "lt:50", "eq:25")
+        category_id: Update category filter
+        account_id: Update account filter
+        set_category_id: Update category action
+        add_tags: Update tags action (comma-separated)
+        set_merchant_name: Update merchant rename action
+        apply_to_existing: Whether to apply to existing transactions
+
+    Returns:
+        JSON string with updated rule details
+    """
+    if not mm_client:
+        raise ValueError("MonarchMoney client not initialized")
+
+    try:
+        # Parse parameters same as create
+        merchant_criteria_list = None
+        if merchant_criteria:
+            if ":" in merchant_criteria:
+                operator, value = merchant_criteria.split(":", 1)
+                merchant_criteria_list = [{"operator": operator, "value": value}]
+            else:
+                merchant_criteria_list = [{"operator": "contains", "value": merchant_criteria}]
+
+        amount_criteria_dict = None
+        if amount_filter:
+            if ":" in amount_filter:
+                operator, value = amount_filter.split(":", 1)
+                amount_criteria_dict = {
+                    "operator": operator,
+                    "value": float(value),
+                    "isExpense": True
+                }
+
+        tags_list = None
+        if add_tags:
+            tags_list = [tag.strip() for tag in add_tags.split(",")]
+
+        category_ids = [category_id] if category_id else None
+        account_ids = [account_id] if account_id else None
+
+        result = await asyncio.wait_for(
+            api_call_with_retry(
+                mm_client.update_transaction_rule,
+                rule_id=rule_id,
+                merchant_criteria=merchant_criteria_list,
+                amount_criteria=amount_criteria_dict,
+                category_ids=category_ids,
+                account_ids=account_ids,
+                set_category_action=set_category_id,
+                add_tags_action=tags_list,
+                set_merchant_action=set_merchant_name,
+                apply_to_existing_transactions=apply_to_existing
+            ),
+            timeout=30.0
+        )
+        result = convert_dates_to_strings(result)
+        return json.dumps(result, indent=2)
+
+    except asyncio.TimeoutError:
+        logger.error(f"Timeout updating transaction rule {rule_id} after 30 seconds")
+        raise ValueError("Rule update timed out after 30 seconds. Please try again.")
+    except Exception as e:
+        logger.error(f"Failed to update transaction rule {rule_id}: {e}")
+        raise
+
+
+@mcp.tool()
+@track_usage
+async def delete_transaction_rule(rule_id: str) -> str:
+    """Delete a specific transaction rule.
+
+    Permanently removes a rule. This does NOT undo any changes the rule already made
+    to transactions - it just stops the rule from applying to future transactions.
+
+    Args:
+        rule_id: ID of the rule to delete (get from get_transaction_rules)
+
+    Returns:
+        JSON string confirming deletion
+    """
+    if not mm_client:
+        raise ValueError("MonarchMoney client not initialized")
+
+    try:
+        result = await api_call_with_retry(mm_client.delete_transaction_rule, rule_id=rule_id)
+        return json.dumps({"success": result, "rule_id": rule_id, "message": "Rule deleted successfully"}, indent=2)
+    except Exception as e:
+        logger.error(f"Failed to delete transaction rule {rule_id}: {e}")
+        raise
+
+
+@mcp.tool()
+@track_usage
+async def preview_transaction_rule(
+    merchant_criteria: Optional[str] = None,
+    amount_filter: Optional[str] = None,
+    category_id: Optional[str] = None,
+    account_id: Optional[str] = None,
+    limit: int = 30
+) -> str:
+    """Preview what transactions would be affected by a rule before creating it.
+
+    This is VERY useful to test your rule criteria before actually creating the rule.
+    Shows you which existing transactions would match your criteria.
+
+    Args:
+        merchant_criteria: Merchant matching pattern to test (format: "contains:Amazon")
+        amount_filter: Amount filter to test (format: "gt:100")
+        category_id: Category filter to test
+        account_id: Account filter to test
+        limit: Max number of matching transactions to return (default 30)
+
+    Returns:
+        JSON string with list of transactions that would match this rule
+
+    Example:
+        # Preview before creating a rule for Amazon purchases
+        merchant_criteria="contains:Amazon", limit=50
+        # Returns all Amazon transactions to verify your matching pattern works
+    """
+    if not mm_client:
+        raise ValueError("MonarchMoney client not initialized")
+
+    try:
+        # Parse parameters
+        merchant_criteria_list = None
+        if merchant_criteria:
+            if ":" in merchant_criteria:
+                operator, value = merchant_criteria.split(":", 1)
+                merchant_criteria_list = [{"operator": operator, "value": value}]
+            else:
+                merchant_criteria_list = [{"operator": "contains", "value": merchant_criteria}]
+
+        amount_criteria_dict = None
+        if amount_filter:
+            if ":" in amount_filter:
+                operator, value = amount_filter.split(":", 1)
+                amount_criteria_dict = {
+                    "operator": operator,
+                    "value": float(value),
+                    "isExpense": True
+                }
+
+        category_ids = [category_id] if category_id else None
+        account_ids = [account_id] if account_id else None
+
+        # Create a rule config for preview
+        rule_config = {}
+        if merchant_criteria_list:
+            rule_config["merchantCriteria"] = merchant_criteria_list
+        if amount_criteria_dict:
+            rule_config["amountCriteria"] = amount_criteria_dict
+        if category_ids:
+            rule_config["categoryIds"] = category_ids
+        if account_ids:
+            rule_config["accountIds"] = account_ids
+
+        result = await api_call_with_retry(
+            mm_client.preview_transaction_rule,
+            rule_config=rule_config,
+            limit=limit
+        )
+        result = convert_dates_to_strings(result)
+        return json.dumps(result, indent=2)
+
+    except Exception as e:
+        logger.error(f"Failed to preview transaction rule: {e}")
+        raise
+
+
 async def main() -> None:
     """Main entry point for the server."""
     # Initialize the MonarchMoney client

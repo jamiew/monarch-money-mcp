@@ -162,7 +162,7 @@ refactor: split server.py into modular components (auth, tools, models)
 - Structured logging with `structlog` for debugging
 - Environment variables: `MONARCH_EMAIL`, `MONARCH_PASSWORD`, `MONARCH_MFA_SECRET`
 
-**Complete Monarch Money API Coverage (21 Tools)**
+**Complete Monarch Money API Coverage (26 Tools)**
 - **Core**: `get_accounts`, `get_transactions`, `get_budgets`, `get_cashflow`
 - **Categories**: `get_transaction_categories`
 - **Transactions**: `create_transaction`, `update_transaction`, `search_transactions`
@@ -173,6 +173,7 @@ refactor: split server.py into modular components (auth, tools, models)
 - **Batch Operations**: `get_transactions_batch`, `get_spending_summary`
 - **Intelligent Analysis**: `get_complete_financial_overview`, `analyze_spending_patterns`
 - **Analytics**: `get_usage_analytics`
+- **Transaction Rules** (NEW): `get_transaction_rules`, `create_transaction_rule`, `update_transaction_rule`, `delete_transaction_rule`, `preview_transaction_rule`
 
 **Type-Safe Data Processing**
 - Pydantic models for validation (still available for reference)
@@ -202,10 +203,10 @@ refactor: split server.py into modular components (auth, tools, models)
 4. **Runtime Validation**: All external data validated before processing
 5. **MCP Protocol Compliance**: Strict adherence to JSON-RPC 2.0 and MCP specifications
 
-### Dependencies (Latest Versions - Updated July 2025)
+### Dependencies (Latest Versions - Updated October 2025)
 
-- **mcp[cli]**: Latest MCP protocol with FastMCP support (≥1.12.2)  
-- **monarchmoney**: Python client for Monarch Money API (≥0.1.15)
+- **mcp[cli]**: Latest MCP protocol with FastMCP support (≥1.12.2)
+- **monarchmoney-enhanced**: Enhanced Python client for Monarch Money API with transaction rule support (keithah/monarchmoney-enhanced@ba1a96a)
 - **pydantic**: Runtime type validation and data models (≥2.11.7)
 - **python-dateutil**: Enhanced date parsing support (≥2.9.0.post0)
 - **structlog**: Structured logging for debugging (≥25.4.0)
@@ -239,13 +240,13 @@ Server runs as MCP server configured in `.mcp.json` with:
 - **✅ Structured Logging**: Context-rich logs with `structlog`
 - **✅ Complete API Coverage**: All 14 Monarch Money API methods as tools
 
-#### Quality Metrics (Updated July 2025)
-- **61 passing tests** with comprehensive coverage including analytics and search features
-- **MyPy errors reduced**: 111 → 84 (mainly untyped external decorators, ongoing improvement)
-- **Security**: Proper session handling and MFA support
-- **Modern stack**: FastMCP 1.12.2, Pydantic, structlog, pytest
+#### Quality Metrics (Updated October 2025)
+- **60 passing tests** with comprehensive coverage including analytics, search, and rule management
+- **26 MCP tools** providing complete financial management capabilities
+- **Security**: Proper session handling, MFA support, and automatic retry logic
+- **Modern stack**: FastMCP 1.12.2, monarchmoney-enhanced, Pydantic, structlog, pytest
 - **Usage analytics**: Real-time performance tracking and optimization suggestions
-- **Codebase**: 1,379 lines in server.py, 6 test files with comprehensive coverage
+- **Codebase**: 1,800+ lines in server.py, 6 test files with comprehensive coverage
 
 ### ✅ ADVANCED FEATURES (Recently Completed)
 
