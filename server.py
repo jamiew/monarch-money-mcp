@@ -620,7 +620,7 @@ def clear_session(reason: str = "unknown") -> None:
     Args:
         reason: Why the session is being cleared (for logging/debugging)
     """
-    global mm_client
+    global mm_client, auth_state, auth_error
 
     logger.info(f"Clearing session files (reason: {reason})")
 
@@ -628,6 +628,11 @@ def clear_session(reason: str = "unknown") -> None:
     if mm_client is not None:
         logger.info("[AUTH] Clearing mm_client instance")
         mm_client = None
+
+    # Reset auth state and error to allow re-authentication
+    logger.info(f"[AUTH] Resetting auth state from {auth_state.value} to not_initialized")
+    auth_state = AuthState.NOT_INITIALIZED
+    auth_error = None
 
     # Clear our custom session file
     if session_file.exists():
@@ -673,10 +678,7 @@ async def api_call_with_retry(method_name: str, *args: Any, **kwargs: Any) -> An
             logger.warning(f"API call failed with authentication error: {e}")
             logger.info("Clearing session and re-authenticating")
 
-            # Reset auth state BEFORE clearing session so ensure_authenticated knows to re-init
-            logger.info(f"[AUTH] Resetting auth state from {auth_state.value} to not_initialized")
-            auth_state = AuthState.NOT_INITIALIZED
-
+            # clear_session() will reset auth state and error automatically
             clear_session(reason="authentication failure during API call")
 
             # Re-authenticate and retry once
