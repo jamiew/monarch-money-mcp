@@ -565,6 +565,8 @@ mm_client: Optional[MonarchMoney] = None
 auth_state: AuthState = AuthState.NOT_INITIALIZED
 auth_lock: Optional[asyncio.Lock] = None  # Created in async context
 auth_error: Optional[str] = None  # Store last auth error for debugging
+auth_failed_at: Optional[float] = None  # Timestamp of last auth failure for cooldown
+AUTH_RETRY_COOLDOWN_SECONDS = 60  # Wait 60 seconds before retrying after FAILED state
 
 # Secure session directory with proper permissions
 session_dir = Path(".mm")
@@ -620,7 +622,7 @@ def clear_session(reason: str = "unknown") -> None:
     Args:
         reason: Why the session is being cleared (for logging/debugging)
     """
-    global mm_client, auth_state, auth_error
+    global mm_client, auth_state, auth_error, auth_failed_at
 
     logger.info(f"Clearing session files (reason: {reason})")
 
@@ -633,6 +635,7 @@ def clear_session(reason: str = "unknown") -> None:
     logger.info(f"[AUTH] Resetting auth state from {auth_state.value} to not_initialized")
     auth_state = AuthState.NOT_INITIALIZED
     auth_error = None
+    auth_failed_at = None  # Reset failure timestamp
 
     # Clear our custom session file
     if session_file.exists():
@@ -651,7 +654,7 @@ def clear_session(reason: str = "unknown") -> None:
         except Exception as e:
             logger.warning(f"Failed to clear mm session file: {e}")
 
-async def api_call_with_retry(method_name: str, *args: Any, **kwargs: Any) -> Any:
+async def api_call_with_retry(method_name: str, *args: Any, max_retries: int = 3, **kwargs: Any) -> Any:
     """Wrapper for API calls that handles session expiration and retries.
 
     Only clears sessions and re-authenticates for genuine auth errors.
@@ -660,39 +663,69 @@ async def api_call_with_retry(method_name: str, *args: Any, **kwargs: Any) -> An
     Args:
         method_name: Name of the method to call on mm_client (e.g., "get_accounts")
         *args: Positional arguments to pass to the method
+        max_retries: Maximum number of retry attempts for auth failures (default: 3)
         **kwargs: Keyword arguments to pass to the method
+
+    Returns:
+        Result from the API method call
+
+    Raises:
+        ValueError: If mm_client is not initialized
+        Exception: Re-raises any non-auth errors or auth errors after max_retries
     """
     global auth_state, mm_client
 
-    # Get the method from the current mm_client instance
-    if mm_client is None:
-        raise ValueError("mm_client is not initialized")
+    last_error: Optional[Exception] = None
 
-    method = getattr(mm_client, method_name)
-
-    try:
-        return await method(*args, **kwargs)
-    except Exception as e:
-        # Use the new helper to determine if this is a real auth error
-        if is_auth_error(e):
-            logger.warning(f"API call failed with authentication error: {e}")
-            logger.info("Clearing session and re-authenticating")
-
-            # clear_session() will reset auth state and error automatically
-            clear_session(reason="authentication failure during API call")
-
-            # Re-authenticate and retry once
-            await ensure_authenticated()
-            logger.info("Retrying API call after re-authentication")
-
-            # CRITICAL: Get the method from the NEW mm_client instance after re-auth
+    for attempt in range(max_retries + 1):  # +1 for initial attempt
+        try:
+            # Get the method from the current mm_client instance
             if mm_client is None:
-                raise ValueError("mm_client is still None after re-authentication")
+                raise ValueError("mm_client is not initialized")
+
             method = getattr(mm_client, method_name)
             return await method(*args, **kwargs)
-        else:
-            # Not an auth error - raise immediately without clearing session
-            raise
+
+        except Exception as e:
+            last_error = e
+
+            # Check if this is an auth error that should trigger retry
+            if is_auth_error(e):
+                if attempt < max_retries:
+                    # Calculate exponential backoff delay (1s, 2s, 4s, ...)
+                    backoff_delay = 2 ** attempt
+                    logger.warning(
+                        f"API call failed with auth error (attempt {attempt + 1}/{max_retries + 1}): {e}"
+                    )
+                    logger.info(f"Clearing session and re-authenticating (retry in {backoff_delay}s)")
+
+                    # clear_session() will reset auth state and error automatically
+                    clear_session(reason=f"authentication failure during API call (attempt {attempt + 1})")
+
+                    # Wait before retry (exponential backoff)
+                    if backoff_delay > 0:
+                        await asyncio.sleep(backoff_delay)
+
+                    # Re-authenticate
+                    await ensure_authenticated()
+                    logger.info(f"Retrying API call after re-authentication (attempt {attempt + 2}/{max_retries + 1})")
+
+                    # Continue to next iteration to retry with NEW mm_client
+                    continue
+                else:
+                    # Max retries exhausted for auth error
+                    logger.error(
+                        f"API call failed after {max_retries} auth retries: {e}"
+                    )
+                    raise
+            else:
+                # Not an auth error - raise immediately without retry
+                raise
+
+    # Should never reach here, but handle it defensively
+    if last_error:
+        raise last_error
+    raise RuntimeError("api_call_with_retry completed without result or error")
 
 
 async def initialize_client() -> None:
@@ -702,7 +735,7 @@ async def initialize_client() -> None:
     performs fresh authentication when necessary. It does NOT validate
     sessions immediately - validation happens on first API call.
     """
-    global mm_client, auth_state, auth_error
+    global mm_client, auth_state, auth_error, auth_failed_at
 
     email = os.getenv("MONARCH_EMAIL")
     password = os.getenv("MONARCH_PASSWORD")
@@ -830,6 +863,8 @@ async def initialize_client() -> None:
                 logger.error(f"[AUTH] ✗ {error_msg}")
                 auth_state = AuthState.FAILED
                 auth_error = str(e)
+                auth_failed_at = time.time()  # Record failure timestamp for cooldown
+                logger.info(f"[AUTH] Cooldown period activated: retry available in {AUTH_RETRY_COOLDOWN_SECONDS}s")
                 raise
 
 
@@ -839,9 +874,12 @@ async def ensure_authenticated() -> None:
     This function uses a lock to prevent concurrent initialization attempts
     and returns immediately if already authenticated.
 
+    Implements cooldown-based recovery from FAILED state: After a failure,
+    waits AUTH_RETRY_COOLDOWN_SECONDS before allowing retry attempts.
+
     Call this at the start of every tool that needs the mm_client.
     """
-    global mm_client, auth_state, auth_lock, auth_error
+    global mm_client, auth_state, auth_lock, auth_error, auth_failed_at
 
     # Initialize lock on first call (must be done in async context)
     if auth_lock is None:
@@ -862,11 +900,35 @@ async def ensure_authenticated() -> None:
             logger.info("[AUTH] Lock acquired: another task completed authentication")
             return
 
-        # Check if in failed state
+        # Check if in failed state with cooldown recovery
         if auth_state == AuthState.FAILED:
-            error_msg = f"Authentication previously failed: {auth_error or 'unknown error'}"
-            logger.error(f"[AUTH] Cannot authenticate: {error_msg}")
-            raise ValueError(error_msg)
+            # Check if cooldown period has elapsed
+            if auth_failed_at is not None:
+                elapsed = time.time() - auth_failed_at
+                if elapsed < AUTH_RETRY_COOLDOWN_SECONDS:
+                    remaining = AUTH_RETRY_COOLDOWN_SECONDS - elapsed
+                    error_msg = (
+                        f"Authentication previously failed: {auth_error or 'unknown error'}. "
+                        f"Cooldown active: retry available in {remaining:.0f} seconds. "
+                        f"To retry immediately, restart the server or set MONARCH_FORCE_LOGIN=true."
+                    )
+                    logger.error(f"[AUTH] Cannot authenticate: {error_msg}")
+                    raise ValueError(error_msg)
+                else:
+                    # Cooldown period elapsed, allow retry
+                    logger.info(
+                        f"[AUTH] Cooldown period ({AUTH_RETRY_COOLDOWN_SECONDS}s) elapsed since last failure, "
+                        f"allowing retry attempt"
+                    )
+                    auth_state = AuthState.NOT_INITIALIZED
+                    auth_error = None
+                    auth_failed_at = None
+                    # Fall through to initialization
+            else:
+                # FAILED state but no timestamp (shouldn't happen, but handle gracefully)
+                error_msg = f"Authentication previously failed: {auth_error or 'unknown error'}"
+                logger.error(f"[AUTH] Cannot authenticate: {error_msg}")
+                raise ValueError(error_msg)
 
         # Check if already initializing (shouldn't happen with lock, but defensive)
         if auth_state == AuthState.INITIALIZING:
