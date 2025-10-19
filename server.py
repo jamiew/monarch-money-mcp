@@ -44,20 +44,24 @@ class GetCashflowArgs(BaseModel):  # type: ignore[misc]
 class CreateTransactionArgs(BaseModel):  # type: ignore[misc]
     """Arguments for create_transaction tool."""
     amount: float
-    description: str = Field(min_length=1)
-    category_id: Optional[str] = None
+    merchant_name: str = Field(min_length=1)
+    category_id: str = Field(min_length=1)
     account_id: str
     date: str = Field(pattern=r'^\d{4}-\d{2}-\d{2}$')
     notes: Optional[str] = None
+    update_balance: bool = Field(default=False)
 
 class UpdateTransactionArgs(BaseModel):  # type: ignore[misc]
     """Arguments for update_transaction tool."""
     transaction_id: str
     amount: Optional[float] = None
-    description: Optional[str] = Field(default=None, min_length=1)
+    merchant_name: Optional[str] = Field(default=None, min_length=1)
     category_id: Optional[str] = None
     date: Optional[str] = Field(default=None, pattern=r'^\d{4}-\d{2}-\d{2}$')
     notes: Optional[str] = None
+    goal_id: Optional[str] = None
+    hide_from_reports: Optional[bool] = None
+    needs_review: Optional[bool] = None
 
 
 def parse_flexible_date(date_input: str) -> date:
@@ -984,6 +988,12 @@ async def get_transactions(
     end_date: Optional[str] = None,
     account_id: Optional[str] = None,
     category_id: Optional[str] = None,
+    tag_ids: Optional[str] = None,
+    has_attachments: Optional[bool] = None,
+    has_notes: Optional[bool] = None,
+    hidden_from_reports: Optional[bool] = None,
+    is_split: Optional[bool] = None,
+    is_recurring: Optional[bool] = None,
     verbose: bool = False
 ) -> str:
     """Fetch transactions with flexible date filtering and smart output formatting.
@@ -995,8 +1005,14 @@ async def get_transactions(
                     NOTE: If you provide start_date without end_date, end_date will auto-default to 'today'
         end_date: Filter transactions up to this date. Supports natural language
                   NOTE: If you provide end_date without start_date, start_date will auto-default to 'this month'
-        account_id: Filter by specific account ID
-        category_id: Filter by specific category ID
+        account_id: Filter by specific account ID (converted to list internally)
+        category_id: Filter by specific category ID (converted to list internally)
+        tag_ids: Comma-separated tag IDs to filter by (e.g., "tag1,tag2")
+        has_attachments: Filter to transactions with (True) or without (False) attachments
+        has_notes: Filter to transactions with (True) or without (False) notes
+        hidden_from_reports: Include hidden transactions (True), exclude them (False), or show all (None)
+        is_split: Filter to split transactions only (True) or non-split (False)
+        is_recurring: Filter to recurring transactions only (True) or non-recurring (False)
         verbose: Output format control (default: False)
             - False: Returns compact format with essential fields only (id, date, amount, merchant, plaidName, category, account, pending, needsReview, notes)
                      Reduces context usage by ~80% - ideal for most queries
@@ -1005,6 +1021,12 @@ async def get_transactions(
 
     Returns:
         JSON string containing transaction list
+
+    Common Filter Examples:
+        - Unreviewed transactions: has_notes=False, needs_review=True
+        - Split transactions: is_split=True
+        - Transactions with receipts: has_attachments=True
+        - Manual transactions: synced_from_institution=False
     """
     await ensure_authenticated()
 
@@ -1025,14 +1047,30 @@ async def get_transactions(
         elif original_end and not original_start and "start_date" in filters:
             logger.warning(f"[AUTO-FILL] start_date was not provided, defaulted to '{filters['start_date']}' (first of end_date's month)")
 
-        # Log final filters being sent to API
-        logger.info(f"[API_CALL] Calling Monarch API with filters: {filters}")
-
         # monarchmoney expects account_ids and category_ids as LISTS
         if account_id:
             filters["account_ids"] = [account_id]
         if category_id:
             filters["category_ids"] = [category_id]
+
+        # Handle tag_ids (convert comma-separated string to list)
+        if tag_ids:
+            filters["tag_ids"] = [t.strip() for t in tag_ids.split(",")]
+
+        # Add boolean filters (only include if explicitly set)
+        if has_attachments is not None:
+            filters["has_attachments"] = has_attachments
+        if has_notes is not None:
+            filters["has_notes"] = has_notes
+        if hidden_from_reports is not None:
+            filters["hidden_from_reports"] = hidden_from_reports
+        if is_split is not None:
+            filters["is_split"] = is_split
+        if is_recurring is not None:
+            filters["is_recurring"] = is_recurring
+
+        # Log final filters being sent to API
+        logger.info(f"[API_CALL] Calling Monarch API with filters: {filters}")
 
         response = await api_call_with_retry(
             "get_transactions",
@@ -1065,6 +1103,12 @@ async def search_transactions(
     end_date: Optional[str] = None,
     account_id: Optional[str] = None,
     category_id: Optional[str] = None,
+    tag_ids: Optional[str] = None,
+    has_attachments: Optional[bool] = None,
+    has_notes: Optional[bool] = None,
+    hidden_from_reports: Optional[bool] = None,
+    is_split: Optional[bool] = None,
+    is_recurring: Optional[bool] = None,
     verbose: bool = False
 ) -> str:
     """Search transactions by text using Monarch Money's built-in search.
@@ -1083,6 +1127,12 @@ async def search_transactions(
                   NOTE: If you provide end_date without start_date, start_date will auto-default to 'this month'
         account_id: Filter by specific account ID
         category_id: Filter by specific category ID
+        tag_ids: Comma-separated tag IDs to filter by
+        has_attachments: Filter to transactions with (True) or without (False) attachments
+        has_notes: Filter to transactions with (True) or without (False) notes
+        hidden_from_reports: Include hidden transactions (True), exclude them (False), or show all (None)
+        is_split: Filter to split transactions only (True) or non-split (False)
+        is_recurring: Filter to recurring transactions only (True) or non-recurring (False)
         verbose: Output format control (default: False)
             - False: Returns compact format (~80% reduction)
             - True: Returns complete transaction details
@@ -1114,17 +1164,33 @@ async def search_transactions(
         elif original_end and not original_start and "start_date" in filters:
             logger.warning(f"[AUTO-FILL] start_date was not provided, defaulted to '{filters['start_date']}' (first of end_date's month)")
 
-        # Log final filters being sent to API
-        logger.info(f"[API_CALL] Calling Monarch API with filters: {filters}")
-
         # monarchmoney expects account_ids and category_ids as LISTS
         if account_id:
             filters["account_ids"] = [account_id]
         if category_id:
             filters["category_ids"] = [category_id]
 
+        # Handle tag_ids (convert comma-separated string to list)
+        if tag_ids:
+            filters["tag_ids"] = [t.strip() for t in tag_ids.split(",")]
+
+        # Add boolean filters (only include if explicitly set)
+        if has_attachments is not None:
+            filters["has_attachments"] = has_attachments
+        if has_notes is not None:
+            filters["has_notes"] = has_notes
+        if hidden_from_reports is not None:
+            filters["hidden_from_reports"] = hidden_from_reports
+        if is_split is not None:
+            filters["is_split"] = is_split
+        if is_recurring is not None:
+            filters["is_recurring"] = is_recurring
+
         # Use the library's built-in search parameter
         filters["search"] = query_str
+
+        # Log final filters being sent to API
+        logger.info(f"[API_CALL] Calling Monarch API with filters: {filters}")
 
         # Fetch transactions from API with search filter
         response = await api_call_with_retry(
@@ -1234,29 +1300,58 @@ async def get_transaction_categories() -> str:
 @track_usage
 async def create_transaction(
     amount: float,
-    description: str,
+    merchant_name: str,
     account_id: str,
     date: str,
-    category_id: Optional[str] = None,
-    notes: Optional[str] = None
+    category_id: str,
+    notes: Optional[str] = None,
+    update_balance: bool = False
 ) -> str:
-    """Create a new transaction."""
+    """Create a new manual transaction.
+
+    Args:
+        amount: Transaction amount (positive for income, negative for expense)
+        merchant_name: Name of the merchant/payee (e.g., "Starbucks", "Monthly Rent")
+        account_id: ID of the account for this transaction
+        date: Transaction date in YYYY-MM-DD format
+        category_id: ID of the category to assign (required for new transactions)
+        notes: Optional notes/memo for this transaction
+        update_balance: Whether to update account balance when creating this transaction (default: False)
+            - False: Transaction is recorded but doesn't affect account balance (typical for synced accounts)
+            - True: Adjusts account balance by transaction amount (useful for manual accounts)
+
+    Returns:
+        JSON string with created transaction details
+    """
     await ensure_authenticated()
 
     try:
-        # Convert date string to date object
-        transaction_date = datetime.strptime(date, "%Y-%m-%d").date()
+        # Validate required fields
+        if not merchant_name or merchant_name.strip() == "":
+            raise ValueError("merchant_name cannot be empty")
+        if not category_id:
+            raise ValueError("category_id is required when creating transactions")
+
+        # Convert date string to ISO format string (API expects YYYY-MM-DD)
+        try:
+            transaction_date = datetime.strptime(date, "%Y-%m-%d").date()
+            date_str = transaction_date.isoformat()
+        except ValueError as e:
+            raise ValueError(f"Invalid date format. Use YYYY-MM-DD (e.g., 2024-01-15). Error: {e}")
+
+        logger.info(f"Creating transaction: merchant={merchant_name}, amount={amount}, date={date_str}")
 
         # Use api_call_with_retry for session expiration handling and add timeout
         result = await asyncio.wait_for(
             api_call_with_retry(
                 "create_transaction",
                 amount=amount,
-                description=description,
+                merchant_name=merchant_name,
                 category_id=category_id,
                 account_id=account_id,
-                date=transaction_date,
-                notes=notes
+                date=date_str,
+                notes=notes or "",
+                update_balance=update_balance
             ),
             timeout=30.0  # 30 second timeout
         )
@@ -1265,6 +1360,8 @@ async def create_transaction(
     except asyncio.TimeoutError:
         logger.error(f"Timeout creating transaction after 30 seconds")
         raise ValueError(f"Transaction creation timed out after 30 seconds. Please try again.")
+    except ValueError:
+        raise
     except Exception as e:
         logger.error(f"Failed to create transaction: {e}")
         raise
@@ -1275,27 +1372,71 @@ async def create_transaction(
 async def update_transaction(
     transaction_id: str,
     amount: Optional[float] = None,
-    description: Optional[str] = None,
+    merchant_name: Optional[str] = None,
     category_id: Optional[str] = None,
     date: Optional[str] = None,
-    notes: Optional[str] = None
+    notes: Optional[str] = None,
+    goal_id: Optional[str] = None,
+    hide_from_reports: Optional[bool] = None,
+    needs_review: Optional[bool] = None
 ) -> str:
-    """Update an existing transaction."""
+    """Update an existing transaction.
+
+    Args:
+        transaction_id: ID of the transaction to update (required)
+        amount: New transaction amount
+        merchant_name: New merchant display name (this is what you see in the UI)
+            - Use this to change how the transaction appears (e.g., "Apple Store" → "Apple")
+            - Different from 'plaidName' (original bank statement text, read-only)
+            - Different from 'notes' (user notes/memo field)
+            - Empty strings are ignored by the API
+        category_id: ID of the new category to assign
+        date: New transaction date in YYYY-MM-DD format
+        notes: User notes/memo for this transaction (separate from merchant name)
+            - Use empty string "" to clear existing notes
+        goal_id: ID of savings goal to associate with this transaction
+            - Use empty string "" to clear goal association
+        hide_from_reports: Whether to hide this transaction from reports/analytics
+        needs_review: Flag transaction as needing review
+
+    Returns:
+        JSON string with updated transaction details
+
+    Common Use Cases:
+        - Change merchant: merchant_name="Starbucks"
+        - Add note: notes="Business expense"
+        - Recategorize: category_id="cat_groceries_123"
+        - Mark for review: needs_review=True
+    """
     await ensure_authenticated()
 
     try:
+        # Validate parameters before API call
+        if merchant_name is not None and merchant_name.strip() == "":
+            logger.warning("Empty merchant_name will be ignored by API")
+
         # Build update parameters
         updates: Dict[str, Any] = {"transaction_id": transaction_id}
         if amount is not None:
             updates["amount"] = amount
-        if description is not None:
-            updates["description"] = description
+        if merchant_name is not None:
+            updates["merchant_name"] = merchant_name
         if category_id is not None:
             updates["category_id"] = category_id
         if date is not None:
             updates["date"] = datetime.strptime(date, "%Y-%m-%d").date()
         if notes is not None:
             updates["notes"] = notes
+        if goal_id is not None:
+            updates["goal_id"] = goal_id
+        if hide_from_reports is not None:
+            updates["hide_from_reports"] = hide_from_reports
+        if needs_review is not None:
+            updates["needs_review"] = needs_review
+
+        # Log what we're updating (for debugging)
+        update_fields = [k for k in updates.keys() if k != "transaction_id"]
+        logger.info(f"Updating transaction {transaction_id} with fields: {update_fields}")
 
         # Use api_call_with_retry for session expiration handling and add timeout
         result = await asyncio.wait_for(
@@ -1307,8 +1448,14 @@ async def update_transaction(
     except asyncio.TimeoutError:
         logger.error(f"Timeout updating transaction {transaction_id} after 30 seconds")
         raise ValueError(f"Transaction update timed out after 30 seconds. Please try again.")
+    except ValueError as e:
+        # Enhanced error messages for validation failures
+        error_msg = str(e)
+        if "date" in error_msg.lower():
+            raise ValueError(f"Invalid date format. Use YYYY-MM-DD (e.g., 2024-01-15). Error: {e}")
+        raise
     except Exception as e:
-        logger.error(f"Failed to update transaction {transaction_id}: {e}")
+        logger.error(f"Failed to update transaction {transaction_id}: {e}", extra={"updates": update_fields if 'update_fields' in locals() else []})
         raise
 
 
@@ -1326,15 +1473,18 @@ async def update_transactions_bulk(
         updates: JSON string containing list of transaction updates. Each update should have:
             - transaction_id (required): ID of transaction to update
             - amount (optional): New amount
-            - description (optional): New description
+            - merchant_name (optional): New merchant display name
             - category_id (optional): New category ID
             - date (optional): New date in YYYY-MM-DD format
             - notes (optional): New notes
+            - goal_id (optional): Goal ID or empty string to clear
+            - hide_from_reports (optional): Boolean visibility flag
+            - needs_review (optional): Boolean review flag
 
     Example:
         [
             {"transaction_id": "123", "category_id": "cat_456", "notes": "Updated"},
-            {"transaction_id": "789", "amount": 50.00, "description": "Grocery store"}
+            {"transaction_id": "789", "merchant_name": "Starbucks", "needs_review": false}
         ]
 
     Returns:
@@ -1382,8 +1532,8 @@ async def update_transactions_bulk(
 
                 if "amount" in update_data:
                     update_params["amount"] = float(update_data["amount"])
-                if "description" in update_data:
-                    update_params["description"] = str(update_data["description"])
+                if "merchant_name" in update_data:
+                    update_params["merchant_name"] = str(update_data["merchant_name"])
                 if "category_id" in update_data:
                     update_params["category_id"] = str(update_data["category_id"])
                 if "date" in update_data:
@@ -1391,6 +1541,12 @@ async def update_transactions_bulk(
                     update_params["date"] = datetime.strptime(date_str, "%Y-%m-%d").date()
                 if "notes" in update_data:
                     update_params["notes"] = str(update_data["notes"])
+                if "goal_id" in update_data:
+                    update_params["goal_id"] = str(update_data["goal_id"])
+                if "hide_from_reports" in update_data:
+                    update_params["hide_from_reports"] = bool(update_data["hide_from_reports"])
+                if "needs_review" in update_data:
+                    update_params["needs_review"] = bool(update_data["needs_review"])
 
                 # Execute update with timeout
                 result = await asyncio.wait_for(
