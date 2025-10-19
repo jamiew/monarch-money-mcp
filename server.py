@@ -1014,10 +1014,73 @@ async def get_transactions(
         is_split: Filter to split transactions only (True) or non-split (False)
         is_recurring: Filter to recurring transactions only (True) or non-recurring (False)
         verbose: Output format control (default: False)
-            - False: Returns compact format with essential fields only (id, date, amount, merchant, plaidName, category, account, pending, needsReview, notes)
-                     Reduces context usage by ~80% - ideal for most queries
-            - True: Returns complete transaction details with all metadata, nested objects, and timestamps
-                    Use when you need full data for analysis or updates
+            - False (compact mode): Returns essential fields only (~80% smaller)
+                Fields included: id, date, amount, merchant, plaidName, category,
+                                account, pending, needsReview, notes
+
+            - True (verbose mode): Returns ALL fields including:
+                Essential fields (same as compact) PLUS:
+                • hideFromReports (bool)
+                • reviewStatus (str: "needs_review" | "reviewed" | null)
+                • isSplitTransaction (bool)
+                • isRecurring (bool)
+                • attachments (list of attachment objects)
+                • tags (list of tag objects)
+                • createdAt (ISO timestamp)
+                • updatedAt (ISO timestamp)
+                • __typename (GraphQL metadata)
+                • Full nested objects with all their fields
+
+            Use verbose=False for most queries to reduce token usage.
+            Use verbose=True when you need: timestamps, split info, attachment details,
+            or are updating transactions (need full context).
+
+    Key Transaction Fields:
+        Core Identifiers:
+            - id: Unique transaction ID (required for updates)
+            - date: Transaction date (YYYY-MM-DD format)
+            - amount: Transaction amount (negative = expense, positive = income)
+
+        Merchant Information:
+            IMPORTANT: Monarch normalizes merchant names for cleaner UI
+            - merchant.name: User-facing display name shown in Monarch UI (normalized/cleaned)
+                Example: "Chipotle" for all Chipotle locations
+            - plaidName: Original bank statement text from Plaid/institution (raw data)
+                Example: "CHIPOTLE 4963", "CHIPOTLE MEX GR ONLINE", "CHIPOTLE 1879"
+                Use this to see location numbers or original descriptors
+            - Multiple transactions from different locations share the same merchant.name
+            - Use plaidName to distinguish between specific locations/variants
+
+        Categorization:
+            - category.id: Category ID (for filtering/updates)
+            - category.name: Category display name (e.g., "Restaurants & Bars")
+            - tags: List of tag objects applied to transaction
+
+        Account Info:
+            - account.id: Account ID where transaction occurred
+            - account.displayName: Account name (e.g., "Chase Sapphire")
+
+        Status Flags:
+            - pending: True if transaction hasn't cleared yet
+            - needsReview: True if flagged for user review
+            - reviewStatus: "needs_review", "reviewed", or null
+            - hideFromReports: True if hidden from budget/reports
+
+        Transaction Types:
+            - isSplitTransaction: True if split into multiple categories
+            - isRecurring: True if part of a recurring series
+
+        User Annotations:
+            NOTE: These are different fields with different purposes
+            - notes: Free-form user memo/annotation (e.g., "Business lunch with client")
+            - merchant_name: The merchant's display name (e.g., "Olive Garden")
+            - Both are editable, but serve different purposes in the UI
+            - attachments: List of receipt/document attachments
+
+        Metadata (verbose mode only):
+            - createdAt: When transaction was first imported
+            - updatedAt: Last modification timestamp
+            - __typename: GraphQL type information
 
     Returns:
         JSON string containing transaction list
@@ -1134,8 +1197,73 @@ async def search_transactions(
         is_split: Filter to split transactions only (True) or non-split (False)
         is_recurring: Filter to recurring transactions only (True) or non-recurring (False)
         verbose: Output format control (default: False)
-            - False: Returns compact format (~80% reduction)
-            - True: Returns complete transaction details
+            - False (compact mode): Returns essential fields only (~80% smaller)
+                Fields included: id, date, amount, merchant, plaidName, category,
+                                account, pending, needsReview, notes
+
+            - True (verbose mode): Returns ALL fields including:
+                Essential fields (same as compact) PLUS:
+                • hideFromReports (bool)
+                • reviewStatus (str: "needs_review" | "reviewed" | null)
+                • isSplitTransaction (bool)
+                • isRecurring (bool)
+                • attachments (list of attachment objects)
+                • tags (list of tag objects)
+                • createdAt (ISO timestamp)
+                • updatedAt (ISO timestamp)
+                • __typename (GraphQL metadata)
+                • Full nested objects with all their fields
+
+            Use verbose=False for most queries to reduce token usage.
+            Use verbose=True when you need: timestamps, split info, attachment details,
+            or are updating transactions (need full context).
+
+    Key Transaction Fields:
+        Core Identifiers:
+            - id: Unique transaction ID (required for updates)
+            - date: Transaction date (YYYY-MM-DD format)
+            - amount: Transaction amount (negative = expense, positive = income)
+
+        Merchant Information:
+            IMPORTANT: Monarch normalizes merchant names for cleaner UI
+            - merchant.name: User-facing display name shown in Monarch UI (normalized/cleaned)
+                Example: "Chipotle" for all Chipotle locations
+            - plaidName: Original bank statement text from Plaid/institution (raw data)
+                Example: "CHIPOTLE 4963", "CHIPOTLE MEX GR ONLINE", "CHIPOTLE 1879"
+                Use this to see location numbers or original descriptors
+            - Multiple transactions from different locations share the same merchant.name
+            - Use plaidName to distinguish between specific locations/variants
+
+        Categorization:
+            - category.id: Category ID (for filtering/updates)
+            - category.name: Category display name (e.g., "Restaurants & Bars")
+            - tags: List of tag objects applied to transaction
+
+        Account Info:
+            - account.id: Account ID where transaction occurred
+            - account.displayName: Account name (e.g., "Chase Sapphire")
+
+        Status Flags:
+            - pending: True if transaction hasn't cleared yet
+            - needsReview: True if flagged for user review
+            - reviewStatus: "needs_review", "reviewed", or null
+            - hideFromReports: True if hidden from budget/reports
+
+        Transaction Types:
+            - isSplitTransaction: True if split into multiple categories
+            - isRecurring: True if part of a recurring series
+
+        User Annotations:
+            NOTE: These are different fields with different purposes
+            - notes: Free-form user memo/annotation (e.g., "Business lunch with client")
+            - merchant_name: The merchant's display name (e.g., "Olive Garden")
+            - Both are editable, but serve different purposes in the UI
+            - attachments: List of receipt/document attachments
+
+        Metadata (verbose mode only):
+            - createdAt: When transaction was first imported
+            - updatedAt: Last modification timestamp
+            - __typename: GraphQL type information
 
     Returns:
         JSON string with search results (list of transactions matching the query)
@@ -1385,19 +1513,43 @@ async def update_transaction(
     Args:
         transaction_id: ID of the transaction to update (required)
         amount: New transaction amount
-        merchant_name: New merchant display name (this is what you see in the UI)
-            - Use this to change how the transaction appears (e.g., "Apple Store" → "Apple")
-            - Different from 'plaidName' (original bank statement text, read-only)
-            - Different from 'notes' (user notes/memo field)
+        merchant_name: New merchant display name shown in Monarch UI
+            - This updates the user-facing name (merchant.name field)
+            - Does NOT change plaidName (original bank statement text, read-only)
             - Empty strings are ignored by the API
+            - Example: Change "AMZN Mktp US" to "Amazon"
         category_id: ID of the new category to assign
         date: New transaction date in YYYY-MM-DD format
         notes: User notes/memo for this transaction (separate from merchant name)
+            NOTE: This is different from merchant_name
+            - notes: Free-form user memo/annotation (e.g., "Business lunch with client")
+            - merchant_name: The merchant's display name (e.g., "Olive Garden")
+            - Both are editable, but serve different purposes in the UI
             - Use empty string "" to clear existing notes
         goal_id: ID of savings goal to associate with this transaction
             - Use empty string "" to clear goal association
         hide_from_reports: Whether to hide this transaction from reports/analytics
         needs_review: Flag transaction as needing review
+
+    Field Editability:
+        Editable Fields (can be updated):
+            - amount: Transaction amount
+            - merchant_name: User-facing merchant display name
+            - category_id: Category assignment
+            - date: Transaction date
+            - notes: User memo/notes
+            - goal_id: Goal association
+            - hide_from_reports: Visibility in reports
+            - needs_review: Review flag
+
+        Read-Only Fields (cannot be updated):
+            - id: Transaction ID (immutable)
+            - plaidName: Original bank statement text (from institution)
+            - account: Account where transaction occurred
+            - pending: Pending status (controlled by institution)
+            - createdAt: Creation timestamp
+            - isSplitTransaction: Split status (use separate split API)
+            - attachments: Use separate attachment API
 
     Returns:
         JSON string with updated transaction details
@@ -1407,6 +1559,7 @@ async def update_transaction(
         - Add note: notes="Business expense"
         - Recategorize: category_id="cat_groceries_123"
         - Mark for review: needs_review=True
+        - Clear notes: notes=""
     """
     await ensure_authenticated()
 
