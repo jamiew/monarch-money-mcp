@@ -1,0 +1,128 @@
+{
+  "$schema": "https://registry.modelcontextprotocol.io/schemas/server.json",
+  "name": "io.github.jamiew/monarch-money-mcp",
+  "description": "MCP server for Monarch Money personal finance - access accounts, transactions, budgets, cashflow, and more. Includes smart date parsing, batch operations, and spending analysis.",
+  "repository": {
+    "url": "https://github.com/jamiew/monarch-money-mcp",
+    "source": "github"
+  },
+  "version": "0.2.0",
+  "packages": [
+    {
+      "registry": "pypi",
+      "name": "monarch-money-mcp",
+      "version": "0.2.0",
+      "runtime": "python",
+      "transport": ["stdio"],
+      "environmentVariables": [
+        {
+          "name": "MONARCH_EMAIL",
+          "description": "Your Monarch Money account email address",
+          "isRequired": true,
+          "isSecret": false
+        },
+        {
+          "name": "MONARCH_PASSWORD",
+          "description": "Your Monarch Money account password",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "MONARCH_MFA_SECRET",
+          "description": "Your TOTP secret key for 2FA (from Monarch Money 2FA setup)",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "MONARCH_FORCE_LOGIN",
+          "description": "Set to 'true' to bypass session cache and force fresh login",
+          "isRequired": false,
+          "isSecret": false
+        }
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "get_accounts",
+      "description": "List all financial accounts with balances"
+    },
+    {
+      "name": "get_transactions",
+      "description": "Get transactions with smart date parsing and filtering"
+    },
+    {
+      "name": "search_transactions",
+      "description": "Search transactions by merchant name or description"
+    },
+    {
+      "name": "get_budgets",
+      "description": "Get budget information and spending limits"
+    },
+    {
+      "name": "get_cashflow",
+      "description": "Get income and expense cashflow data"
+    },
+    {
+      "name": "get_transaction_categories",
+      "description": "List all transaction categories"
+    },
+    {
+      "name": "create_transaction",
+      "description": "Create a new manual transaction"
+    },
+    {
+      "name": "update_transaction",
+      "description": "Update an existing transaction"
+    },
+    {
+      "name": "update_transactions_bulk",
+      "description": "Update multiple transactions in parallel"
+    },
+    {
+      "name": "get_account_holdings",
+      "description": "Get investment holdings for an account"
+    },
+    {
+      "name": "get_account_history",
+      "description": "Get historical balance data for an account"
+    },
+    {
+      "name": "get_institutions",
+      "description": "List connected financial institutions"
+    },
+    {
+      "name": "get_recurring_transactions",
+      "description": "Get recurring/subscription transactions"
+    },
+    {
+      "name": "set_budget_amount",
+      "description": "Set budget amount for a category"
+    },
+    {
+      "name": "create_manual_account",
+      "description": "Create a manual tracking account"
+    },
+    {
+      "name": "refresh_accounts",
+      "description": "Request refresh of account data from institutions"
+    },
+    {
+      "name": "get_spending_summary",
+      "description": "Get aggregated spending summary by category/account/month"
+    },
+    {
+      "name": "get_complete_financial_overview",
+      "description": "Get comprehensive financial snapshot (accounts, budgets, transactions, cashflow)"
+    },
+    {
+      "name": "analyze_spending_patterns",
+      "description": "Analyze spending trends with optional forecasting"
+    },
+    {
+      "name": "get_usage_analytics",
+      "description": "Get tool usage statistics and optimization suggestions"
+    }
+  ],
+  "securityConsiderations": "This server requires your actual Monarch Money credentials (email, password, MFA secret) as Monarch Money does not provide OAuth or official API access. Credentials have full account access including viewing all financial data and making changes. Use with appropriate caution and never share your credentials."
+}
