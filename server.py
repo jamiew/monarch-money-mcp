@@ -581,6 +581,161 @@ def track_usage(func: Any) -> Any:
 # Initialize the FastMCP server
 mcp = FastMCP("monarch-money")
 
+
+# =============================================================================
+# MCP Resources - Read-only data endpoints for reference data
+# =============================================================================
+
+
+@mcp.resource("categories://list")
+async def list_categories_resource() -> str:
+    """
+    List all transaction categories available in Monarch Money.
+
+    Returns a JSON array of category objects with id, name, group, and icon.
+    This is read-only reference data useful for understanding available categories
+    before creating or updating transactions.
+    """
+    await ensure_authenticated()
+    categories = await api_call_with_retry("get_transaction_categories")
+    return json.dumps(convert_dates_to_strings(categories), indent=2)
+
+
+@mcp.resource("accounts://list")
+async def list_accounts_resource() -> str:
+    """
+    List all linked financial accounts in Monarch Money.
+
+    Returns a JSON array of account objects including checking, savings,
+    credit cards, investments, and other account types with their balances
+    and institution information.
+    """
+    await ensure_authenticated()
+    accounts = await api_call_with_retry("get_accounts")
+    return json.dumps(convert_dates_to_strings(accounts), indent=2)
+
+
+@mcp.resource("institutions://list")
+async def list_institutions_resource() -> str:
+    """
+    List all connected financial institutions in Monarch Money.
+
+    Returns a JSON array of institution objects showing which banks,
+    brokerages, and other financial institutions are connected to the account.
+    """
+    await ensure_authenticated()
+    institutions = await api_call_with_retry("get_institutions")
+    return json.dumps(convert_dates_to_strings(institutions), indent=2)
+
+
+# =============================================================================
+# MCP Prompts - Reusable prompt templates for common financial analyses
+# =============================================================================
+
+
+@mcp.prompt()
+def analyze_spending(period: str = "this month", category: str | None = None) -> str:
+    """
+    Generate a prompt template for analyzing spending patterns.
+
+    Args:
+        period: Time period to analyze (e.g., "this month", "last 3 months", "2024")
+        category: Optional category to focus on (e.g., "Food & Dining", "Shopping")
+    """
+    category_focus = f" specifically for {category}" if category else ""
+    return f"""Please analyze my spending{category_focus} for {period}.
+
+Use the get_transactions tool to fetch transaction data for the specified period, then provide:
+
+1. **Total Spending**: Sum of all expenses
+2. **Top Categories**: Which categories had the most spending
+3. **Trends**: Any notable patterns or changes
+4. **Insights**: Specific observations about spending habits
+5. **Recommendations**: Actionable suggestions to optimize spending
+
+Focus on practical insights rather than just listing numbers."""
+
+
+@mcp.prompt()
+def budget_review(month: str = "current") -> str:
+    """
+    Generate a prompt template for reviewing budget performance.
+
+    Args:
+        month: Which month to review ("current", "last", or "YYYY-MM" format)
+    """
+    return f"""Please review my budget performance for {month}.
+
+Use get_budgets and get_transactions tools to compare budgeted amounts vs actual spending:
+
+1. **Budget vs Actual**: For each category, show budgeted amount, actual spending, and variance
+2. **Over Budget**: Highlight categories where spending exceeded budget
+3. **Under Budget**: Show categories with unused budget
+4. **Overall Status**: Am I on track for the month?
+5. **Adjustments**: Suggest any budget adjustments based on actual patterns
+
+Present the data in a clear, easy-to-scan format."""
+
+
+@mcp.prompt()
+def financial_health_check() -> str:
+    """
+    Generate a comprehensive financial health assessment prompt.
+
+    This prompt guides a thorough review of accounts, spending, and budgets.
+    """
+    return """Please perform a comprehensive financial health check.
+
+Use the available tools to gather data and provide:
+
+1. **Account Overview**:
+   - Total assets and liabilities
+   - Net worth calculation
+   - Account balances summary
+
+2. **Cash Flow Analysis**:
+   - Monthly income vs expenses
+   - Savings rate
+   - Recurring transactions review
+
+3. **Spending Analysis**:
+   - Top spending categories (last 30 days)
+   - Unusual or large transactions
+   - Comparison to previous month
+
+4. **Budget Status**:
+   - Categories on track vs off track
+   - Projected month-end status
+
+5. **Action Items**:
+   - Specific recommendations
+   - Areas needing attention
+   - Positive trends to maintain
+
+Be concise but thorough. Highlight the most important insights first."""
+
+
+@mcp.prompt()
+def transaction_categorization_help(description: str) -> str:
+    """
+    Generate a prompt to help categorize a transaction.
+
+    Args:
+        description: The transaction description or merchant name
+    """
+    return f"""Help me categorize this transaction: "{description}"
+
+First, use the categories://list resource to see all available categories.
+
+Then suggest:
+1. **Best Category Match**: The most appropriate category for this transaction
+2. **Alternative Options**: Other categories that might fit
+3. **Reasoning**: Why you recommend this categorization
+
+If this is a merchant I transact with frequently, also note if the categorization
+should be applied to future transactions from the same merchant."""
+
+
 # Authentication state management
 from enum import Enum
 
